@@ -1,7 +1,13 @@
 # Dependencies
 node_modules
+
+# Build outputs — never commit compiled artifacts
 /dist
 /build
+apps/api/dist/
+apps/web/dist/
+
+# Environment files
 .env
 .env.local
 

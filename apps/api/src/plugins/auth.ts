@@ -2,12 +2,17 @@ import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import { supabase } from './supabase';
 
+// Augment FastifyRequest and FastifyInstance in a single declaration block
 declare module 'fastify' {
   interface FastifyRequest {
     user?: {
       id: string;
       email?: string;
     };
+  }
+
+  interface FastifyInstance {
+    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -46,11 +51,5 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 };
-
-declare module 'fastify' {
-  interface FastifyInstance {
-    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-  }
-}
 
 export default fp(authPlugin);

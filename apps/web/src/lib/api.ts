@@ -19,7 +19,7 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
     headers,
   });
 
-  if (response.status === 240 || response.status === 204) {
+  if (response.status === 204) {
     return null;
   }
 

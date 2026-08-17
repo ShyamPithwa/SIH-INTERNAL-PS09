@@ -1,39 +1,59 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, ReactNode } from 'react';
+import supabase from './lib/supabase';
 import ConfigurationPage from './pages/ConfigurationPage';
 import DashboardPage from './pages/DashboardPage';
+import LoginPage from './pages/LoginPage';
 
-function Home() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-center px-4">
-      <div className="glass p-8 rounded-2xl max-w-md w-full border border-white/10 shadow-2xl space-y-6">
-        <div className="text-5xl">🔋</div>
-        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
-          BESS Intelligence
-        </h1>
-        <p className="text-muted-foreground text-sm leading-relaxed">
-          Battery Energy Storage System monitoring, forecasting, and constrained dispatch optimization platform.
-        </p>
-        <div className="flex flex-col gap-3">
-          <a
-            href="/dashboard"
-            className="w-full bg-primary hover:bg-primary/95 text-white font-medium py-2.5 px-4 rounded-xl transition duration-200 text-center shadow-lg shadow-blue-500/20"
-          >
-            Enter Dashboard
-          </a>
-        </div>
+// ProtectedRoute: redirects to /login if there is no active Supabase session
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const [checking, setChecking] = useState(true);
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthed(!!session);
+      setChecking(false);
+    });
+
+    // Listen for auth state changes (login / logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthed(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (checking) {
+    // Minimal loading state while we verify the session
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-4xl animate-pulse">🔋</div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  if (!authed) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return <>{children}</>;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/bess/new" element={<ConfigurationPage />} />
-        <Route path="/bess/:id/configuration" element={<ConfigurationPage />} />
+        {/* Public routes */}
+        <Route path="/login" element={<LoginPage />} />
+        {/* Redirect root to /login; LoginPage auto-redirects to /dashboard if authed */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+
+        {/* Protected routes — require an active Supabase session */}
+        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+        <Route path="/bess/new" element={<ProtectedRoute><ConfigurationPage /></ProtectedRoute>} />
+        <Route path="/bess/:id/configuration" element={<ProtectedRoute><ConfigurationPage /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   );

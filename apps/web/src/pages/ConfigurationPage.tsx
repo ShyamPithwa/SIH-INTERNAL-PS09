@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import supabase from '../lib/supabase';
+import { api } from '../lib/api';
 import { BessAsset } from 'shared';
 
 export default function ConfigurationPage() {
@@ -48,23 +48,7 @@ export default function ConfigurationPage() {
   const fetchAsset = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/');
-        return;
-      }
-
-      const res = await fetch(`http://localhost:4000/api/v1/bess/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to fetch asset');
-      }
-
-      const data = await res.json();
+      const data = await api.get(`/bess/${id}`);
       setFormData(data);
     } catch (err: any) {
       setError(err.message);
@@ -77,7 +61,11 @@ export default function ConfigurationPage() {
     const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'number' ? parseFloat(value) : value
+      // For number inputs: store the raw string if empty (allows clearing the field),
+      // otherwise parse to float. This prevents NaN from resetting the field.
+      [name]: type === 'number'
+        ? (value === '' ? '' : parseFloat(value))
+        : value
     }));
   };
 
@@ -92,62 +80,43 @@ export default function ConfigurationPage() {
       setLoading(false);
       return;
     }
-    if (formData.ratedEnergyKwh! <= 0) {
+    if (!formData.ratedEnergyKwh || (formData.ratedEnergyKwh as number) <= 0) {
       setError('Rated Energy (kWh) must be greater than 0');
       setLoading(false);
       return;
     }
-    if (formData.usableEnergyKwh! <= 0) {
+    if (!formData.usableEnergyKwh || (formData.usableEnergyKwh as number) <= 0) {
       setError('Usable Energy (kWh) must be greater than 0');
       setLoading(false);
       return;
     }
-    if (formData.usableEnergyKwh! > formData.ratedEnergyKwh!) {
+    if ((formData.usableEnergyKwh as number) > (formData.ratedEnergyKwh as number)) {
       setError('Usable Energy (kWh) cannot exceed Rated Energy (kWh)');
       setLoading(false);
       return;
     }
-    if (formData.ratedPowerKw! <= 0) {
+    if (!formData.ratedPowerKw || (formData.ratedPowerKw as number) <= 0) {
       setError('Rated Power (kW) must be greater than 0');
       setLoading(false);
       return;
     }
-    if (formData.roundTripEfficiency! <= 0 || formData.roundTripEfficiency! > 1) {
+    if (!formData.roundTripEfficiency || (formData.roundTripEfficiency as number) <= 0 || (formData.roundTripEfficiency as number) > 1) {
       setError('Round-trip efficiency must be in the range (0, 1]');
       setLoading(false);
       return;
     }
-    if (formData.socMin! >= formData.socMax!) {
+    if ((formData.socMin as number) >= (formData.socMax as number)) {
       setError('Minimum SOC (0..1) must be less than Maximum SOC (0..1)');
       setLoading(false);
       return;
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/');
-        return;
+      if (id) {
+        await api.patch(`/bess/${id}`, formData);
+      } else {
+        await api.post('/bess', formData);
       }
-
-      const url = id ? `http://localhost:4000/api/v1/bess/${id}` : 'http://localhost:4000/api/v1/bess';
-      const method = id ? 'PATCH' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(formData)
-      });
-
-      const responseData = await res.json();
-
-      if (!res.ok) {
-        throw new Error(responseData.error?.message || 'Failed to save configuration');
-      }
-
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message);
