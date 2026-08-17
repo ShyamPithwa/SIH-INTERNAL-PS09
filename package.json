@@ -1,0 +1,18 @@
+{
+  "name": "bess-platform",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm build:engine && pnpm -r build",
+    "build:engine": "node scripts/build-engine.js",
+    "setup:engine": "node scripts/setup-engine.js",
+    "test": "pnpm test:engine && pnpm -r test",
+    "test:engine": "node scripts/test-engine.js",
+    "demo:data": "tsx scripts/generate-demo-data.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.6"
+  }
+}
