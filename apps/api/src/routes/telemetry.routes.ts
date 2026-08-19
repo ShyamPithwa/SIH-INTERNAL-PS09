@@ -81,8 +81,18 @@ function handleRouteError(err: any, reply: FastifyReply) {
     return reply.status(400).send({
       error: {
         code: 'INVALID_TELEMETRY',
-        message: 'Validation failed',
+        message: 'Schema validation failed',
         details: err.flatten().fieldErrors,
+      },
+    });
+  }
+
+  // Data integrity rejection (fake/tampered/anomalous data)
+  if (err.code === 'DATA_INTEGRITY_VIOLATION') {
+    return reply.status(422).send({
+      error: {
+        code: 'DATA_INTEGRITY_VIOLATION',
+        message: err.message,
       },
     });
   }
@@ -96,3 +106,4 @@ function handleRouteError(err: any, reply: FastifyReply) {
     },
   });
 }
+

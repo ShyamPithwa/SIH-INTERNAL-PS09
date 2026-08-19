@@ -2,9 +2,20 @@ import { TelemetryRepository } from '../repositories/telemetry.repository';
 import { BessService } from './bess.service';
 import { TelemetrySample } from 'shared';
 import { runAnalysisJob } from '../jobs/analysis.job';
+import { dataIntegrityService } from './data-integrity.service';
 
 const telemetryRepository = new TelemetryRepository();
 const bessService = new BessService();
+
+// Custom error class for data integrity rejections
+class DataIntegrityError extends Error {
+  statusCode = 422;
+  code = 'DATA_INTEGRITY_VIOLATION';
+  constructor(message: string) {
+    super(message);
+    this.name = 'DataIntegrityError';
+  }
+}
 
 export class TelemetryService {
   async addTelemetry(
@@ -15,8 +26,37 @@ export class TelemetryService {
     // Verify BESS ownership first (throws 404/403 if not owned)
     await bessService.getAsset(bessId, ownerId);
 
+    // ── DATA INTEGRITY VALIDATION ──────────────────────────────────────────
+    // Fetch recent history for statistical Z-score analysis
+    const recentHistory = await telemetryRepository.list(bessId, { limit: 20 });
+
+    const validationResult = dataIntegrityService.validate(
+      sampleData as any,
+      recentHistory as any[],
+      null, // prevSoh can be pulled from state if needed
+    );
+
+    // Log all warnings (stored but not blocking)
+    if (validationResult.warnings.length > 0) {
+      console.warn(`[DataIntegrity] BESS ${bessId} — Warnings for sample at ${sampleData.recordedAt}:`);
+      validationResult.warnings.forEach(w => console.warn(`  ⚠️  ${w}`));
+    }
+
+    // Hard reject if any fatal errors found
+    if (!validationResult.valid) {
+      console.error(`[DataIntegrity] BESS ${bessId} — REJECTED sample at ${sampleData.recordedAt}:`);
+      validationResult.errors.forEach(e => console.error(`  ❌ ${e}`));
+      throw new DataIntegrityError(
+        `Data integrity validation failed: ${validationResult.errors.join(' | ')}`
+      );
+    }
+
+    // Attach quality tag based on warnings
+    const quality = validationResult.warnings.length > 0 ? 'QUESTIONABLE' : 'GOOD';
+    const enrichedSample = { ...sampleData, quality };
+
     // Save telemetry
-    const sample = await telemetryRepository.insert(bessId, sampleData);
+    const sample = await telemetryRepository.insert(bessId, enrichedSample);
 
     // Immediate analysis trigger (Mode A)
     try {
@@ -36,8 +76,45 @@ export class TelemetryService {
     // Verify BESS ownership
     await bessService.getAsset(bessId, ownerId);
 
-    // Insert batch
-    const samples = await telemetryRepository.insertBatch(bessId, samplesData);
+    // ── DATA INTEGRITY VALIDATION (per sample in batch) ───────────────────
+    const recentHistory = await telemetryRepository.list(bessId, { limit: 20 });
+    const validSamples: Partial<TelemetrySample>[] = [];
+    const rejectedCount = { count: 0, reasons: [] as string[] };
+
+    for (const sampleData of samplesData) {
+      const result = dataIntegrityService.validate(
+        sampleData as any,
+        [...recentHistory as any[], ...validSamples as any[]],
+        null,
+      );
+
+      if (result.warnings.length > 0) {
+        console.warn(`[DataIntegrity] Batch sample at ${sampleData.recordedAt} has warnings:`,
+          result.warnings.join(' | '));
+      }
+
+      if (!result.valid) {
+        rejectedCount.count++;
+        rejectedCount.reasons.push(...result.errors);
+        console.error(`[DataIntegrity] Batch sample REJECTED at ${sampleData.recordedAt}:`,
+          result.errors.join(' | '));
+        continue; // Skip bad sample, process rest
+      }
+
+      const quality = result.warnings.length > 0 ? 'QUESTIONABLE' : 'GOOD';
+      validSamples.push({ ...sampleData, quality });
+    }
+
+    // If ALL samples are bad, reject the entire batch
+    if (validSamples.length === 0) {
+      throw new DataIntegrityError(
+        `All ${samplesData.length} samples failed data integrity validation. ` +
+        `Reasons: ${rejectedCount.reasons.slice(0, 3).join(' | ')}`
+      );
+    }
+
+    // Insert only valid samples
+    const samples = await telemetryRepository.insertBatch(bessId, validSamples);
 
     // Trigger analysis on the last sample
     if (samples.length > 0) {
@@ -48,6 +125,7 @@ export class TelemetryService {
       }
     }
 
+    // Return with metadata about rejected samples
     return samples;
   }
 
