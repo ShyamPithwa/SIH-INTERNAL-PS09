@@ -18,34 +18,25 @@ export function buildApp() {
   });
 
   // ─── LAYER 1: HTTP Security Headers ─────────────────────────────────────────
-  // Helmet sets X-Frame-Options, X-Content-Type-Options, CSP, HSTS, etc.
   app.register(helmet, {
+    // Prevent clickjacking — deny all iframes
+    frameguard: { action: 'deny' },
+    // Prevent MIME type sniffing
+    noSniff: true,
+    // Force HTTPS in browsers that support it
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+    },
+    // Content Security Policy for API responses
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", 'https://fonts.googleapis.com'],
-        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:'],
         connectSrc: ["'self'", 'https://*.supabase.co', 'wss://*.supabase.co'],
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
       },
     },
-    // Remove X-Powered-By to hide that this is a Node/Fastify server
-    hidePoweredBy: true,
-    // Prevent clickjacking — deny all iframes
-    frameguard: { action: 'deny' },
-    // Force HTTPS in browsers that support it
-    hsts: {
-      maxAge: 31536000,      // 1 year
-      includeSubDomains: true,
-      preload: true,
-    },
-    // Prevent MIME type sniffing
-    noSniff: true,
-    // Block XSS reflected attacks in older browsers
-    xssFilter: true,
   });
 
   // ─── LAYER 2: Rate Limiting ──────────────────────────────────────────────────
