@@ -3,6 +3,7 @@ import { BessService } from './bess.service';
 import { TelemetrySample } from 'shared';
 import { runAnalysisJob } from '../jobs/analysis.job';
 import { dataIntegrityService } from './data-integrity.service';
+import { alertService } from './alert.service';
 
 const telemetryRepository = new TelemetryRepository();
 const bessService = new BessService();
@@ -58,6 +59,25 @@ export class TelemetryService {
     // Save telemetry
     const sample = await telemetryRepository.insert(bessId, enrichedSample);
 
+    // ── ALERT CHECKS ──────────────────────────────────────────────────────
+    const asset = await bessService.getAsset(bessId, ownerId).catch(() => null);
+    const code = (asset as any)?.bessCode ?? bessId;
+    const tempC = sampleData.batteryTemperatureC ?? 0;
+    const socPct = typeof (sampleData as any).soc === 'number' ? (sampleData as any).soc * 100 : null;
+    const socMax = (asset as any)?.socMax ?? 0.95;
+    const socMin = (asset as any)?.socMin ?? 0.10;
+
+    // Fire-and-forget alerts (non-blocking)
+    if (tempC > 55) {
+      alertService.alertTemperatureCritical(bessId, code, tempC).catch(console.error);
+    }
+    if (socPct != null && socPct < socMin * 100 + 2) {
+      alertService.alertSocLow(bessId, code, socPct).catch(console.error);
+    }
+    if (socPct != null && socPct > socMax * 100 - 2) {
+      alertService.alertSocHigh(bessId, code, socPct).catch(console.error);
+    }
+
     // Immediate analysis trigger (Mode A)
     try {
       await this.triggerAnalysis(bessId, sample);
@@ -98,6 +118,10 @@ export class TelemetryService {
         rejectedCount.reasons.push(...result.errors);
         console.error(`[DataIntegrity] Batch sample REJECTED at ${sampleData.recordedAt}:`,
           result.errors.join(' | '));
+        // Alert on integrity violations in batch
+        const asset2 = await bessService.getAsset(bessId, ownerId).catch(() => null);
+        const code2 = (asset2 as any)?.bessCode ?? bessId;
+        alertService.alertDataIntegrityViolation(bessId, code2, result.errors[0]).catch(console.error);
         continue; // Skip bad sample, process rest
       }
 

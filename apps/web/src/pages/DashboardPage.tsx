@@ -2,10 +2,12 @@ import { useBess } from '../hooks/useBess';
 import { useTelemetry } from '../hooks/useTelemetry';
 import { useDecision } from '../hooks/useDecision';
 import { useBatteryState } from '../hooks/useBatteryState';
+import { usePrediction } from '../hooks/usePrediction';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, ReferenceLine } from 'recharts';
-import { Activity, Thermometer, BatteryCharging, Zap, Cpu, LogOut } from 'lucide-react';
+import { Activity, Thermometer, BatteryCharging, Zap, Cpu, LogOut, Download, TrendingDown } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import supabase from '../lib/supabase';
+import { api } from '../lib/api';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -13,10 +15,29 @@ export default function DashboardPage() {
   const { telemetry, latestSample } = useTelemetry(currentAsset?.id);
   const { decision } = useDecision(currentAsset?.id);
   const { batteryState } = useBatteryState(currentAsset?.id);
+  const { prediction } = usePrediction(currentAsset?.id);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
+  };
+
+  // CSV Export handler
+  const handleExportCsv = async () => {
+    if (!currentAsset) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `http://localhost:4000/api/v1/bess/${currentAsset.id}/telemetry/export`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${session?.access_token}` } });
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `bess-${currentAsset.bessCode}-telemetry.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      console.error('CSV export failed:', err);
+    }
   };
 
   // Time format helper for charts
@@ -106,6 +127,14 @@ export default function DashboardPage() {
           </Link>
 
           <button
+            onClick={handleExportCsv}
+            title="Export telemetry as CSV"
+            className="flex items-center gap-1.5 text-xs font-semibold bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 rounded-xl px-3 py-2.5 transition"
+          >
+            <Download size={14} /> Export CSV
+          </button>
+
+          <button
             onClick={handleLogout}
             title="Sign out"
             className="p-2 rounded-xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition"
@@ -183,8 +212,83 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Middle Section: Dispatch Decision Card & Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Middle Section: EOL Prediction, Dispatch Decision & Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Battery EOL Prediction Card */}
+              <div className="glass p-6 rounded-2xl border border-white/10 flex flex-col gap-4 bg-gradient-to-br from-slate-900 to-slate-950 justify-between">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                      <TrendingDown size={14} className="text-amber-400" /> EOL Prediction
+                    </span>
+                    {prediction && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                        prediction.confidence === 'HIGH' ? 'bg-emerald-500/10 text-emerald-400' :
+                        prediction.confidence === 'MEDIUM' ? 'bg-amber-500/10 text-amber-400' :
+                        'bg-slate-500/10 text-slate-400'
+                      }`}>{prediction.confidence} Confidence</span>
+                    )}
+                  </div>
+
+                  {prediction ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <div className="text-3xl font-black text-white">
+                            {prediction.daysUntilEol != null ? `${prediction.daysUntilEol}` : '∞'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">days until EOL</div>
+                        </div>
+                        {prediction.predictedEolDate && (
+                          <div className="text-right">
+                            <div className="text-sm font-bold text-amber-400 font-mono">{prediction.predictedEolDate}</div>
+                            <div className="text-[10px] text-slate-500">Predicted EOL date</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Remaining useful life bar */}
+                      <div>
+                        <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                          <span>Remaining Useful Life</span>
+                          <span className="font-bold text-white">{prediction.remainingUsefulLifePct.toFixed(1)}%</span>
+                        </div>
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${prediction.remainingUsefulLifePct}%`,
+                              background: prediction.remainingUsefulLifePct > 50 ? '#10b981' :
+                                          prediction.remainingUsefulLifePct > 20 ? '#f59e0b' : '#ef4444',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-center text-slate-500 text-xs py-6">
+                      <div>
+                        <TrendingDown size={28} className="mx-auto mb-2 opacity-30 text-amber-400" />
+                        Ingest telemetry to generate<br/>end-of-life prediction
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {prediction && (
+                  <div className="border-t border-white/5 pt-3 grid grid-cols-2 gap-2 text-center text-[10px]">
+                    <div className="bg-slate-900/50 rounded-xl p-2 border border-white/5">
+                      <div className="text-slate-400">Degradation/day</div>
+                      <div className="font-mono font-bold text-white">{prediction.degradationRatePerDay.toFixed(4)}%</div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded-xl p-2 border border-white/5">
+                      <div className="text-slate-400">Data Points</div>
+                      <div className="font-mono font-bold text-white">{prediction.dataPoints}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Engine Dispatch Decision — real C++ engine output */}
               <div className="glass p-6 rounded-2xl border border-white/10 flex flex-col justify-between shadow-2xl relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-950">
                 <div className="space-y-4">

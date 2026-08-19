@@ -9,6 +9,7 @@ import { telemetryRoutes } from './routes/telemetry.routes';
 import { stateRoutes } from './routes/state.routes';
 import { forecastsRoutes } from './routes/forecasts.routes';
 import { decisionsRoutes } from './routes/decisions.routes';
+import { predictionRoutes } from './routes/prediction.routes';
 
 export function buildApp() {
   const app = Fastify({
@@ -84,6 +85,7 @@ export function buildApp() {
       apiInstance.register(stateRoutes);
       apiInstance.register(forecastsRoutes);
       apiInstance.register(decisionsRoutes);
+      apiInstance.register(predictionRoutes);
     },
     { prefix: '/api/v1' }
   );

@@ -74,6 +74,53 @@ export async function telemetryRoutes(fastify: FastifyInstance) {
       return handleRouteError(err, reply);
     }
   });
+
+  // 5. Export Telemetry as CSV
+  fastify.get('/bess/:id/telemetry/export', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const ownerId = request.user!.id;
+      const query = request.query as { from?: string; to?: string; limit?: string };
+      const limit = query.limit ? parseInt(query.limit) : 1000;
+
+      const samples = await telemetryService.listTelemetry(ownerId, id, {
+        from: query.from,
+        to: query.to,
+        limit,
+      });
+
+      // Build CSV
+      const headers = [
+        'id', 'recorded_at', 'battery_voltage_v', 'battery_current_a',
+        'battery_power_kw', 'battery_temperature_c', 'grid_frequency_hz',
+        'grid_voltage_v', 'renewable_power_kw', 'load_power_kw', 'quality', 'source',
+      ];
+
+      const escape = (val: any) => {
+        if (val == null) return '';
+        const str = String(val);
+        return str.includes(',') || str.includes('"') || str.includes('\n')
+          ? `"${str.replace(/"/g, '""')}"`
+          : str;
+      };
+
+      const rows = samples.map(s => [
+        s.id, s.recordedAt, s.batteryVoltageV, s.batteryCurrentA,
+        s.batteryPowerKw ?? '', s.batteryTemperatureC, s.gridFrequencyHz,
+        s.gridVoltageV ?? '', s.renewablePowerKw ?? '', s.loadPowerKw ?? '',
+        s.quality, s.source,
+      ].map(escape).join(','));
+
+      const csv = [headers.join(','), ...rows].join('\r\n');
+
+      reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="bess-${id}-telemetry.csv"`)
+        .send(csv);
+    } catch (err) {
+      return handleRouteError(err, reply);
+    }
+  });
 }
 
 function handleRouteError(err: any, reply: FastifyReply) {
